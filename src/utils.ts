@@ -195,7 +195,22 @@ const tryBackportSquashCommit = async (opts: TryBackportOptions) => {
     },
   });
 
-  const patch = await patchBody.text();
+  const rawPatch = await patchBody.text();
+  let patch: string = '';
+  let subjectLineFound = false;
+  for (const patchLine of rawPatch.split('\n')) {
+    if (patchLine.startsWith('Subject: ') && !subjectLineFound) {
+      subjectLineFound = true;
+      const branchAwarePatchLine = patchLine
+        // Replace branch references in commit message with new branch
+        .replaceAll(`(${opts.pr.base.ref})`, `${opts.targetBranch}`)
+        // Replace PR references in squashed message with empty string
+        .replaceAll(/ \(#[0-9]+\)$/g, '');
+      patch += `${branchAwarePatchLine}\n`;
+    } else {
+      patch += `${patchLine}\n`;
+    }
+  }
 
   log('backportImpl', LogLevel.INFO, 'Got squash commit details');
 
@@ -512,11 +527,16 @@ export const backportImpl = async (
       if (purpose === BackportPurpose.ExecuteBackport) {
         log('backportImpl', LogLevel.INFO, 'Creating Pull Request');
 
+        const branchAwarePrTitle = pr.title.replaceAll(
+          `(${pr.base.ref})`,
+          `(${targetBranch})`,
+        );
+
         const { data: newPr } = await context.github.pulls.create(
           context.repo({
             head: `${tempBranch}`,
             base: targetBranch,
-            title: pr.title,
+            title: branchAwarePrTitle,
             body: await createBackportComment(context, pr),
             maintainer_can_modify: false,
           }),
